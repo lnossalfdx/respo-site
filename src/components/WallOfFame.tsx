@@ -8,7 +8,15 @@ import { useRef, useState, useCallback, useEffect } from "react";
 
 interface PhotoEntry {
   name: string;
-  dataUrl: string;
+  imageSrc: string;
+}
+
+interface PhotoApiRecord {
+  id: string;
+  name: string;
+  image_path: string;
+  image_url: string;
+  created_at: string;
 }
 
 interface MatterBody {
@@ -181,7 +189,7 @@ export function WallOfFame() {
     if (!M) return;
     const { Bodies, Composite } = M;
 
-    const resized = await resizeImage(entry.dataUrl, ITEM_SIZE);
+    const resized = await resizeImage(entry.imageSrc, ITEM_SIZE);
 
     const W = canvasRef.current!.width;
     const x = ITEM_SIZE + Math.random() * (W - ITEM_SIZE * 2);
@@ -237,17 +245,28 @@ export function WallOfFame() {
     const loadSaved = async () => {
       try {
         const res = await fetch("/api/photos");
-        const data = await res.json();
-        if (data.photos?.length) {
+        const data = (await res.json()) as {
+          success?: boolean;
+          error?: string;
+          photos?: PhotoApiRecord[];
+        };
+
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || "Falha ao carregar fotos.");
+        }
+
+        const savedPhotos = data.photos ?? [];
+
+        if (savedPhotos.length) {
           // Wait until Matter is ready then drop them all in
           const waitForMatter = setInterval(() => {
             if (matterReadyRef.current && canvasRef.current) {
               clearInterval(waitForMatter);
               initPhysics();
               // Stagger drops so they don't all land at once
-              data.photos.forEach((p: { name: string; url: string }, i: number) => {
+              savedPhotos.forEach((p, i: number) => {
                 setTimeout(() => {
-                  addPhoto({ name: p.name, dataUrl: p.url });
+                  addPhoto({ name: p.name, imageSrc: p.image_url });
                 }, i * 120);
               });
             }
@@ -283,7 +302,7 @@ export function WallOfFame() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { setError("Digite seu nome."); return; }
-    if (!preview) { setError("Selecione uma imagem."); return; }
+    if (!file) { setError("Selecione uma imagem."); return; }
     if (!matterLoaded) { setError("Aguarde o carregamento do motor de física."); return; }
 
     setLoading(true);
@@ -292,26 +311,31 @@ export function WallOfFame() {
     if (!engineRef.current) initPhysics();
 
     try {
-      // Save to server first
+      const formData = new FormData();
+      formData.append("name", name.trim());
+      formData.append("file", file);
+
       const res = await fetch("/api/photos", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), dataUrl: preview }),
+        body: formData,
       });
 
-      if (!res.ok) {
-        const data = await res.json();
+      const data = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        photo?: PhotoApiRecord;
+      };
+
+      if (!res.ok || !data.success || !data.photo) {
         setError(data.error || "Erro ao salvar. Tente novamente.");
         setLoading(false);
         return;
       }
 
-      const { photo } = await res.json();
-      // Drop using the server URL so the image is served statically
-      await addPhoto({ name: photo.name, dataUrl: photo.url });
-    } catch {
-      // Fallback: add locally even if server fails
-      await addPhoto({ name: name.trim(), dataUrl: preview });
+      await addPhoto({ name: data.photo.name, imageSrc: data.photo.image_url });
+    } catch (err) {
+      console.error("[WallOfFame] Upload failed", err);
+      setError("Nao foi possivel enviar sua foto agora. Tente novamente.");
     }
 
     setName("");
