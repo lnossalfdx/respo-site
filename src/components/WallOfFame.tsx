@@ -99,22 +99,49 @@ export function WallOfFame() {
   const [count, setCount] = useState(0);
   const [matterLoaded, setMatterLoaded] = useState(false);
 
-  // Resize image to target size
+  // Resize image to the sprite size while preserving a square crop.
   const resizeImage = (src: string, size: number): Promise<string> => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const img = new window.Image();
+
       img.onload = () => {
         const c = document.createElement("canvas");
         c.width = size;
         c.height = size;
-        const cx = c.getContext("2d")!;
-        // Draw as square crop
+
+        const cx = c.getContext("2d");
+        if (!cx) {
+          console.error("[WallOfFame] Failed to get 2D context for image resize.", { src });
+          reject(new Error("Failed to create resize canvas."));
+          return;
+        }
+
         const minS = Math.min(img.width, img.height);
         const sx = (img.width - minS) / 2;
         const sy = (img.height - minS) / 2;
+
         cx.drawImage(img, sx, sy, minS, minS, 0, 0, size, size);
-        resolve(c.toDataURL("image/webp", 0.8));
+
+        try {
+          resolve(c.toDataURL("image/webp", 0.8));
+        } catch (error) {
+          console.error("[WallOfFame] Failed to export resized image from canvas.", {
+            src,
+            error,
+          });
+          reject(error instanceof Error ? error : new Error("Canvas export failed."));
+        }
       };
+
+      img.onerror = (event) => {
+        console.error("[WallOfFame] Failed to load image for canvas processing.", {
+          src,
+          event,
+        });
+        reject(new Error("Image load failed."));
+      };
+
+      img.crossOrigin = "anonymous";
       img.src = src;
     });
   };
@@ -189,7 +216,17 @@ export function WallOfFame() {
     if (!M) return;
     const { Bodies, Composite } = M;
 
-    const resized = await resizeImage(entry.imageSrc, ITEM_SIZE);
+    let resized: string;
+    try {
+      resized = await resizeImage(entry.imageSrc, ITEM_SIZE);
+    } catch (error) {
+      console.error("[WallOfFame] Failed to prepare image sprite.", {
+        name: entry.name,
+        imageSrc: entry.imageSrc,
+        error,
+      });
+      return;
+    }
 
     const W = canvasRef.current!.width;
     const x = ITEM_SIZE + Math.random() * (W - ITEM_SIZE * 2);
