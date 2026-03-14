@@ -78,6 +78,7 @@ declare global {
 
 const MAX_PHOTOS = 500;
 const ITEM_SIZE = 44;
+const TEXTURE_SIZE = 128;
 
 export function WallOfFame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -99,7 +100,7 @@ export function WallOfFame() {
   const [count, setCount] = useState(0);
   const [matterLoaded, setMatterLoaded] = useState(false);
 
-  // Resize image to the sprite size while preserving a square crop.
+  // Build a higher-resolution square texture so the physics sprite stays sharp.
   const resizeImage = (src: string, size: number): Promise<string> => {
     return new Promise((resolve, reject) => {
       const img = new window.Image();
@@ -120,10 +121,12 @@ export function WallOfFame() {
         const sx = (img.width - minS) / 2;
         const sy = (img.height - minS) / 2;
 
+        cx.imageSmoothingEnabled = true;
+        cx.imageSmoothingQuality = "high";
         cx.drawImage(img, sx, sy, minS, minS, 0, 0, size, size);
 
         try {
-          resolve(c.toDataURL("image/webp", 0.8));
+          resolve(c.toDataURL("image/webp", 0.95));
         } catch (error) {
           console.error("[WallOfFame] Failed to export resized image from canvas.", {
             src,
@@ -218,7 +221,7 @@ export function WallOfFame() {
 
     let resized: string;
     try {
-      resized = await resizeImage(entry.imageSrc, ITEM_SIZE);
+      resized = await resizeImage(entry.imageSrc, TEXTURE_SIZE);
     } catch (error) {
       console.error("[WallOfFame] Failed to prepare image sprite.", {
         name: entry.name,
@@ -240,8 +243,8 @@ export function WallOfFame() {
       render: {
         sprite: {
           texture: resized,
-          xScale: 1,
-          yScale: 1,
+          xScale: ITEM_SIZE / TEXTURE_SIZE,
+          yScale: ITEM_SIZE / TEXTURE_SIZE,
         },
       },
     });
